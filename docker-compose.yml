@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: grindstone_postgres
+    environment:
+      POSTGRES_DB: grindstone_apex
+      POSTGRES_USER: trader
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-grindstone_pass_123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - grindstone_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: grindstone_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - grindstone_network
+
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grindstone_api
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql://trader:${DB_PASSWORD:-grindstone_pass_123}@postgres:5432/grindstone_apex
+      REDIS_URL: redis://redis:6379/0
+      EXCHANGE_TYPE: ${EXCHANGE_TYPE:-coinbase}
+      EXCHANGE_API_KEY: ${EXCHANGE_API_KEY}
+      EXCHANGE_SECRET: ${EXCHANGE_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENV: ${ENV:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    networks:
+      - grindstone_network
+
+  # Strategy Generator Service (Background Worker)
+  strategy_generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grindstone_generator
+    command: python -m src.services.strategy_generator_service
+    environment:
+      DATABASE_URL: postgresql://trader:${DB_PASSWORD:-grindstone_pass_123}@postgres:5432/grindstone_apex
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - grindstone_network
+
+  # Backtester Service (Background Worker)
+  backtester:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grindstone_backtester
+    command: python -m src.services.backtester_service
+    environment:
+      DATABASE_URL: postgresql://trader:${DB_PASSWORD:-grindstone_pass_123}@postgres:5432/grindstone_apex
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - grindstone_network
+
+  # Live Trading Service (Background Worker)
+  live_trader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grindstone_trader
+    command: python -m src.services.live_trader_service
+    environment:
+      DATABASE_URL: postgresql://trader:${DB_PASSWORD:-grindstone_pass_123}@postgres:5432/grindstone_apex
+      REDIS_URL: redis://redis:6379/0
+      EXCHANGE_TYPE: ${EXCHANGE_TYPE:-coinbase}
+      EXCHANGE_API_KEY: ${EXCHANGE_API_KEY}
+      EXCHANGE_SECRET: ${EXCHANGE_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - grindstone_network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  grindstone_network:
+    driver: bridge
