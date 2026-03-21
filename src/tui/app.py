@@ -30,12 +30,11 @@ class SystemStatus(Static):
         """Initialize status panel."""
         super().__init__()
         self.db = SessionLocal()
-        self.update_interval = 1.0  # Update every second
+        self.update_interval = 1.0
 
     def render(self) -> str:
         """Render status panel."""
         try:
-            # Get counts
             total_strategies = self.db.query(Strategy).count()
             deployed_strategies = self.db.query(StrategyPerformance).filter(
                 StrategyPerformance.deployed == True
@@ -44,7 +43,6 @@ class SystemStatus(Static):
                 LiveTrade.status == "open"
             ).count()
 
-            # Calculate metrics
             from datetime import timedelta
             recent_trades = self.db.query(LiveTrade).filter(
                 LiveTrade.status == "closed",
@@ -101,7 +99,7 @@ class PositionsMonitor(Static):
             table.add_column("Stop", style="blue")
             table.add_column("Target", style="green")
 
-            for pos in positions[:20]:  # Show top 20
+            for pos in positions[:20]:
                 try:
                     from src.live_trading.exchange_connector import ExchangeConnector
                     from src.config import get_settings
@@ -129,7 +127,7 @@ class PositionsMonitor(Static):
                         f"${pos.stop_loss:.2f}",
                         f"${pos.take_profit:.2f}"
                     )
-                except:
+                except Exception:
                     continue
 
             return str(table)
@@ -169,7 +167,7 @@ class StrategyPerformance(Static):
 
                 table.add_row(
                     strat.strategy_id[:12] + "...",
-                    strat.strategy_id,  # Would get from strategy table
+                    strat.strategy_id,
                     f"${strat.live_total_profit or 0:+.2f}",
                     status
                 )
@@ -411,19 +409,10 @@ class GrindstoneApp:
         self.app = GroundstoneTextApp()
 
     def run(self) -> None:
-        """Run the TUI application."""
-        try:
-            self.app.run()
-        except Exception as e:
-            logger.error(f"Error running TUI: {e}")
-            print(f"[red]Error: {e}[/red]")
-
-
-def main() -> None:
-    """Entry point for TUI."""
-    app = GrindstoneApp()
-    app.run()
+        """Run the TUI app."""
+        self.app.run()
 
 
 if __name__ == "__main__":
-    main()
+    app = GrindstoneApp()
+    app.run()
