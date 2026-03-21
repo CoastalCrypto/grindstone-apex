@@ -54,9 +54,7 @@ async def get_open_positions(strategy_id: Optional[str] = None):
 
         # Add current price and unrealized P&L
         connector = ExchangeConnector(
-            exchange=settings.live_exchange,
-            api_key=settings.live_api_key,
-            api_secret=settings.live_api_secret,
+            exchange_type=settings.live_exchange,
             sandbox=settings.sandbox_mode
         )
 

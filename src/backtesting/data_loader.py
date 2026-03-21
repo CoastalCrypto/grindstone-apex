@@ -34,9 +34,12 @@ class HistoricalDataLoader:
         """
         self.source = source
         if source == "ccxt":
-            self.exchange = getattr(ccxt, os.getenv("EXCHANGE_TYPE", "coinbase"))({
-                "apiKey": os.getenv("EXCHANGE_API_KEY"),
-                "secret": os.getenv("EXCHANGE_SECRET"),
+            from src.config import get_settings
+            settings = get_settings()
+            self.exchange = getattr(ccxt, settings.exchange_type)({
+                "apiKey": settings.exchange_api_key,
+                "secret": settings.exchange_secret,
+                "password": settings.exchange_password,
                 "enableRateLimit": True,
             })
 
@@ -258,7 +261,7 @@ class HistoricalDataLoader:
 _loader = None
 
 
-def get_data_loader(source: str = "yfinance") -> HistoricalDataLoader:
+def get_data_loader(source: str = "ccxt") -> HistoricalDataLoader:
     """Get or create data loader instance."""
     global _loader
     if _loader is None:

@@ -297,12 +297,12 @@ class VectorBTBacktestEngine:
 
         return upper, lower, sma
 
-    def _remove_consecutive(self, signals: pd.Series) -> pd.Series:
+    def _remove_consecutive(self, signals: np.ndarray) -> np.ndarray:
         """Remove consecutive signals."""
         signals = signals.copy()
         for i in range(1, len(signals)):
-            if signals.iloc[i] and signals.iloc[i - 1]:
-                signals.iloc[i] = False
+            if signals[i] and signals[i - 1]:
+                signals[i] = False
         return signals
 
     def _empty_result(self) -> Dict:

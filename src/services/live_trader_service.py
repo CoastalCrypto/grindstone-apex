@@ -39,9 +39,7 @@ class LiveTradingService:
         self.settings = settings
         self.loader = get_data_loader()
         self.connector = ExchangeConnector(
-            exchange=settings.live_exchange,
-            api_key=settings.live_api_key,
-            api_secret=settings.live_api_secret,
+            exchange_type=settings.live_exchange,
             sandbox=settings.sandbox_mode
         )
         self.position_manager = PositionManager(self.db, self.connector)
@@ -343,7 +341,7 @@ class LiveTradingService:
                 ticker = self.connector.get_ticker(trade.pair)
                 exit_price = ticker["last"]
 
-            pnl = (exit_price - trade.entry_price) * trade.size - trade.fees
+            pnl = (exit_price - trade.entry_price) * trade.size - trade.fees_paid
             pnl_pct = (pnl / (trade.entry_price * trade.size)) * 100
 
             logger.info(f"📉 Closing position: {trade.pair}")
@@ -475,14 +473,15 @@ class LiveTradingService:
     def _calculate_atr(self, candles, periods: int = 14) -> float:
         """Calculate Average True Range."""
         try:
+            import pandas as pd
             high_low = candles['high'] - candles['low']
-            high_close = abs(candles['high'] - candles['close'].shift())
-            low_close = abs(candles['low'] - candles['close'].shift())
+            high_close = (candles['high'] - candles['close'].shift()).abs()
+            low_close = (candles['low'] - candles['close'].shift()).abs()
 
-            tr = max(high_low, high_close, low_close)
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
             atr = tr.rolling(periods).mean().iloc[-1]
 
-            return atr
+            return float(atr) if not pd.isna(atr) else 0.0
 
         except Exception as e:
             logger.error(f"Error calculating ATR: {e}")

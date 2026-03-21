@@ -44,7 +44,8 @@ class StrategyGenerationService:
         Args:
             interval_seconds: Time between generation cycles (default 5 min)
         """
-        generation_id = 0
+        latest = self.db.query(GenerationRun).order_by(GenerationRun.generation_id.desc()).first()
+        generation_id = latest.generation_id if latest else 0
 
         logger.info("="*60)
         logger.info("Starting Continuous Strategy Generation Service")

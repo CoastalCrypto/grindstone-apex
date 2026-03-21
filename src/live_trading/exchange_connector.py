@@ -30,10 +30,15 @@ class ExchangeConnector:
             # Get exchange class
             exchange_class = getattr(ccxt, self.exchange_type)
 
+            api_key = settings.exchange_api_key if sandbox else settings.live_api_key
+            secret = settings.exchange_secret if sandbox else settings.live_api_secret
+            password = settings.exchange_password if sandbox else settings.live_api_password
+
             # Initialize with API keys
             self.exchange = exchange_class({
-                "apiKey": os.getenv("EXCHANGE_API_KEY", ""),
-                "secret": os.getenv("EXCHANGE_SECRET", ""),
+                "apiKey": api_key,
+                "secret": secret,
+                "password": password,
                 "sandbox": sandbox,
                 "enableRateLimit": True,
                 "timeout": 30000,

@@ -1,4 +1,5 @@
 """Database configuration and models."""
+import uuid
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, JSON, Boolean, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -53,6 +54,15 @@ class Strategy(Base):
         Index('idx_pair_generation', 'pair', 'generation_id'),
         Index('idx_status_pair', 'status', 'pair'),
     )
+
+    @property
+    def parent_id(self) -> str:
+        """Alias for parent_strategy_id for backwards compatibility."""
+        return self.parent_strategy_id
+
+    @parent_id.setter
+    def parent_id(self, value: str):
+        self.parent_strategy_id = value
 
 
 class BacktestResult(Base):
@@ -153,7 +163,7 @@ class StrategyPerformance(Base):
     """Summary performance metrics for each strategy (updated continuously)."""
     __tablename__ = "strategy_performance"
 
-    id = Column(String(50), primary_key=True, index=True)
+    id = Column(String(50), primary_key=True, index=True, default=lambda: f"perf_{uuid.uuid4().hex[:12]}")
     strategy_id = Column(String(50), ForeignKey("strategies.id"), unique=True, nullable=False)
 
     # Backtest Summary
@@ -173,6 +183,7 @@ class StrategyPerformance(Base):
 
     # Status
     deployed = Column(Boolean, default=False)
+    live_active = Column(Boolean, default=True)  # Whether actively trading right now
     retired = Column(Boolean, default=False)
     retirement_reason = Column(String(200), nullable=True)
 
@@ -211,7 +222,7 @@ class GenerationRun(Base):
     status = Column(String(20), default="running")  # running, completed, failed
     error_message = Column(String(500), nullable=True)
 
-    metadata = Column(JSON, nullable=True)
+    run_metadata = Column("metadata", JSON, nullable=True)
 
     __table_args__ = (
         Index('idx_status_date', 'status', 'started_at'),
@@ -243,8 +254,11 @@ class SystemMetrics(Base):
 
     # Account
     account_balance = Column(Float, nullable=True)
+    account_free = Column(Float, nullable=True)
+    account_used = Column(Float, nullable=True)
     total_live_profit = Column(Float, default=0.0)
     active_strategies = Column(Integer, default=0)
+    open_positions = Column(Integer, default=0)
 
     __table_args__ = (
         Index('idx_timestamp', 'timestamp'),

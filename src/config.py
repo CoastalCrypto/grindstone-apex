@@ -16,9 +16,10 @@ class Settings(BaseSettings):
     redis_ttl: int = 86400
 
     # Exchange API
-    exchange_type: str = "coinbase"
+    exchange_type: str = "blofin"
     exchange_api_key: str = ""
     exchange_secret: str = ""
+    exchange_password: str = ""
     exchange_sandbox: bool = True
 
     # Strategy Configuration
@@ -49,9 +50,16 @@ class Settings(BaseSettings):
     # Live Trading
     live_trading_enabled: bool = False
     deploy_top_n_strategies: int = 2
-    pairs_to_trade: str = "BTC/USDT,ETH/USDT"
+    pairs_to_trade: str = "BTC/USDT:USDT,ETH/USDT:USDT,XAU/USDT:USDT,XAG/USDT:USDT"
     target_weekly_profit_usdt: float = 7500
     performance_drift_threshold: float = 0.15
+
+    # Live Exchange Connection (distinct from backtest exchange)
+    live_exchange: str = "coinbase"
+    live_api_key: str = ""
+    live_api_secret: str = ""
+    live_api_password: str = ""
+    sandbox_mode: bool = True
 
     # Telegram
     telegram_bot_token: str = ""

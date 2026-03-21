@@ -48,7 +48,7 @@ def generate(interval: int, pairs: str):
     pairs_list = [p.strip() for p in pairs.split(',')]
 
     try:
-        service.run_continuous(interval_seconds=interval, pairs=pairs_list)
+        service.run_continuous(interval_seconds=interval)
     except KeyboardInterrupt:
         click.echo("\n✋ Generation service stopped")
 
