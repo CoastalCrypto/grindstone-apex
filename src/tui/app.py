@@ -70,7 +70,7 @@ class SystemStatus(Static):
             return str(status_table)
 
         except Exception as e:
-            return f"[red]Error: {str(e)}"[/red]"
+            return f"[red]Error: {str(e)}[/red]"
 
 
 class PositionsMonitor(Static):
@@ -135,7 +135,7 @@ class PositionsMonitor(Static):
             return str(table)
 
         except Exception as e:
-            return f"[red]Error: {str(e)}"[/red]"
+            return f"[red]Error: {str(e)}[/red]"
 
 
 class StrategyPerformance(Static):
@@ -177,7 +177,7 @@ class StrategyPerformance(Static):
             return str(table)
 
         except Exception as e:
-            return f"[red]Error: {str(e)}"[/red]"
+            return f"[red]Error: {str(e)}[/red]"
 
 
 class DashboardScreen(Screen):
@@ -261,7 +261,7 @@ class GenerationMonitor(Static):
             return str(table)
 
         except Exception as e:
-            return f"[red]Error: {str(e)}"[/red]"
+            return f"[red]Error: {str(e)}[/red]"
 
 
 class AlertsLog(RichLog):
