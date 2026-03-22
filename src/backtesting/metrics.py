@@ -161,19 +161,34 @@ class BacktestMetrics:
         """
         Calculate composite score (0-100) for a strategy.
 
-        Weights:
-        - 30% Win rate
-        - 30% Risk-adjusted returns (Sharpe)
-        - 20% Consistency (Profit factor)
-        - 20% Profit percentage
+        Weights (tuned for real crypto markets):
+        - 25% Win rate (50%+ = full marks)
+        - 25% Risk-adjusted returns (Sharpe 1.5+ = full marks)
+        - 20% Consistency (Profit factor 1.5+ = full marks)
+        - 20% Net profit percentage (10%+ = full marks)
+        - 10% Trade count bonus (more trades = more confidence)
         """
         try:
-            win_rate_score = min(metrics['win_rate'] * 100 * 0.30, 30)
-            sharpe_score = min((metrics['sharpe_ratio'] / 3.0) * 30, 30)
-            consistency_score = min((metrics['profit_factor'] / 2.0) * 20, 20)
-            profit_score = min((metrics['total_profit_pct'] / 50.0) * 20, 20)
+            # Win rate: 50%+ gets full 25 points
+            win_rate_score = min(metrics['win_rate'] * 100 / 50.0 * 25, 25)
 
-            total_score = win_rate_score + sharpe_score + consistency_score + profit_score
+            # Sharpe: 1.5+ gets full 25 points (realistic for crypto)
+            sharpe = max(metrics['sharpe_ratio'], 0)
+            sharpe_score = min((sharpe / 1.5) * 25, 25)
+
+            # Profit factor: 1.5+ gets full 20 points
+            pf = max(metrics['profit_factor'], 0)
+            consistency_score = min((pf / 1.5) * 20, 20)
+
+            # Net profit: 10%+ gets full 20 points
+            profit_pct = max(metrics['total_profit_pct'], 0)
+            profit_score = min((profit_pct / 10.0) * 20, 20)
+
+            # Trade count: 10+ trades gets full 10 points (penalize lucky 1-trade wonders)
+            trade_count = metrics.get('total_trades', 0)
+            trade_score = min((trade_count / 10.0) * 10, 10)
+
+            total_score = win_rate_score + sharpe_score + consistency_score + profit_score + trade_score
             return min(total_score, 100)
         except Exception as e:
             logger.error(f"Error calculating score: {e}")
@@ -183,17 +198,19 @@ class BacktestMetrics:
         """
         Check if strategy meets minimum profitability criteria.
 
-        Criteria:
-        - Win rate >= 40%
-        - Sharpe ratio > 1.0
-        - Total profit > fees * 2
-        - Max drawdown < 30%
+        Criteria (tuned for real crypto markets):
+        - Win rate >= 35% (trend-following can be profitable at lower win rates)
+        - Sharpe ratio > 0.5 (realistic for crypto with high volatility)
+        - Total profit > 0 (net positive after fees)
+        - Max drawdown < 40% (crypto is volatile, allow wider drawdowns)
+        - At least 3 trades (avoid lucky single-trade strategies)
         """
         criteria = {
-            "min_win_rate": metrics['win_rate'] >= 0.40,
-            "min_sharpe": metrics['sharpe_ratio'] > 1.0,
-            "min_profit": metrics['total_profit'] > metrics['total_fees'] * 2,
-            "max_drawdown": metrics['max_drawdown'] < 0.30,
+            "min_win_rate": metrics['win_rate'] >= 0.35,
+            "min_sharpe": metrics['sharpe_ratio'] > 0.5,
+            "min_profit": metrics['total_profit'] > 0,
+            "max_drawdown": metrics['max_drawdown'] < 0.40,
+            "min_trades": metrics['total_trades'] >= 3,
         }
 
         # Log which criteria failed
@@ -223,9 +240,10 @@ class BacktestMetrics:
         """
         Calculate Sharpe ratio.
 
-        Assumptions: Daily returns, 252 trading days per year
+        For backtesting: uses per-trade returns annualized by estimated trades/year.
+        Crypto markets trade 365 days/year.
         """
-        if len(equity_curve) < 2:
+        if len(equity_curve) < 3:
             return 0.0
 
         returns = np.diff(equity_curve) / equity_curve[:-1]
@@ -233,17 +251,31 @@ class BacktestMetrics:
         if len(returns) == 0 or np.std(returns) == 0:
             return 0.0
 
-        annual_return = np.mean(returns) * 252
-        annual_std = np.std(returns) * np.sqrt(252)
+        # Estimate annualization factor from number of trades
+        # More trades = higher confidence in the ratio
+        n_trades = len(returns)
+        trades_per_year = max(n_trades, 12)  # Assume at least 12 trades/year baseline
+
+        mean_return = np.mean(returns)
+        std_return = np.std(returns)
+
+        if std_return == 0:
+            return 0.0
+
+        # Annualize
+        annual_return = mean_return * trades_per_year
+        annual_std = std_return * np.sqrt(trades_per_year)
 
         sharpe = (annual_return - risk_free_rate) / annual_std if annual_std > 0 else 0
-        return sharpe
+
+        # Cap at reasonable values to avoid inf from low-trade strategies
+        return max(min(sharpe, 10.0), -10.0)
 
     def _calculate_sortino(self, equity_curve: np.ndarray, risk_free_rate: float = 0.02) -> float:
         """
         Calculate Sortino ratio (uses only downside volatility).
         """
-        if len(equity_curve) < 2:
+        if len(equity_curve) < 3:
             return 0.0
 
         returns = np.diff(equity_curve) / equity_curve[:-1]
@@ -255,13 +287,16 @@ class BacktestMetrics:
         downside_returns = returns[returns < 0]
 
         if len(downside_returns) == 0:
-            return float('inf')  # No losses
+            return 5.0  # Good but not infinite
 
-        annual_return = np.mean(returns) * 252
-        downside_std = np.std(downside_returns) * np.sqrt(252)
+        n_trades = len(returns)
+        trades_per_year = max(n_trades, 12)
+
+        annual_return = np.mean(returns) * trades_per_year
+        downside_std = np.std(downside_returns) * np.sqrt(trades_per_year)
 
         sortino = (annual_return - risk_free_rate) / downside_std if downside_std > 0 else 0
-        return sortino
+        return max(min(sortino, 10.0), -10.0)
 
     def _calculate_expectancy(self, avg_win: float, avg_loss: float, win_rate: float) -> float:
         """

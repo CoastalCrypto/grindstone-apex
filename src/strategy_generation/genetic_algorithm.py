@@ -44,6 +44,8 @@ class Strategy:
             "indicators": self.indicators,
             "position_sizing": self.position_sizing,
             "risk_management": self.risk_management,
+            "strategy_type": self.indicators.get("strategy_type", "sma_crossover"),
+            "direction": self.indicators.get("direction", "long"),
             "metadata": {
                 "source": self.source,
                 "parent_id": self.parent_id,
@@ -167,7 +169,11 @@ class GeneticAlgorithmEngine:
         mutated.source = "ga_mutation"
 
         # Mutate each indicator parameter with probability
+        # Skip non-numeric params like strategy_type and direction
+        NON_MUTABLE = {"strategy_type", "direction"}
         for param in mutated.indicators:
+            if param in NON_MUTABLE:
+                continue
             if random.random() < self.mutation_rate:
                 mutated.indicators[param] = self._perturb_parameter(
                     param,
@@ -217,12 +223,22 @@ class GeneticAlgorithmEngine:
             generation_id=generation_id
         )
 
-        # Take random parameters from each parent
+        # Pick one parent's strategy_type/direction as a coherent unit
+        type_parent = random.choice([parent1, parent2])
+        child.indicators["strategy_type"] = type_parent.indicators.get("strategy_type", "sma_crossover")
+        child.indicators["direction"] = type_parent.indicators.get("direction", "long")
+
+        # Crossover numeric parameters from both parents
+        NON_MUTABLE = {"strategy_type", "direction"}
         for key in parent1.indicators:
-            child.indicators[key] = random.choice([
-                parent1.indicators.get(key),
-                parent2.indicators.get(key)
-            ])
+            if key in NON_MUTABLE:
+                continue
+            p1_val = parent1.indicators.get(key)
+            p2_val = parent2.indicators.get(key)
+            if p2_val is not None:
+                child.indicators[key] = random.choice([p1_val, p2_val])
+            else:
+                child.indicators[key] = p1_val
 
         for key in parent1.position_sizing:
             child.position_sizing[key] = random.choice([
@@ -238,30 +254,95 @@ class GeneticAlgorithmEngine:
 
         return child
 
+    # All available strategy types
+    STRATEGY_TYPES = [
+        'sma_crossover', 'ema_crossover', 'breakout', 'volume_breakout',
+        'rsi_reversal', 'bollinger_bounce', 'macd', 'orb', 'liquidity_sweep'
+    ]
+
     def _generate_random_strategy(self) -> Strategy:
-        """Generate random strategy with valid parameters."""
+        """Generate random strategy from multiple indicator types, long or short."""
+        strategy_type = random.choice(self.STRATEGY_TYPES)
+        direction = random.choice(['long', 'short'])
+        indicators = self._random_indicators_for_type(strategy_type)
+
         return Strategy(
             pair=self.pair,
             timeframes=[15, 60, 240],
-            indicators={
-                "sma_fast": random.randint(10, 50),
-                "sma_slow": random.randint(100, 250),
-                "rsi_threshold_buy": random.randint(20, 40),
-                "rsi_threshold_sell": random.randint(60, 80),
-                "bollinger_period": random.randint(15, 25),
-            },
+            indicators=indicators,
             position_sizing={
                 "size_type": "percent_of_balance",
-                "size_amount": random.uniform(0.1, 1.0),
+                "size_amount": random.uniform(0.1, 0.4),
             },
             risk_management={
-                "stop_loss_atr": random.uniform(3.0, 5.0),
-                "take_profit_percent": random.uniform(0.15, 0.30),
-                "breakeven_on_profit": True,
+                "stop_loss_atr": random.uniform(1.0, 3.5),
+                "take_profit_percent": random.uniform(0.005, 0.08),  # 0.5% - 8%
+                "breakeven_on_profit": random.choice([True, False]),
                 "max_drawdown_limit": 0.30,
             },
-            source="ga"
+            source="ga",
         )
+
+    def _random_indicators_for_type(self, strategy_type: str) -> dict:
+        """Generate random indicator parameters for a given strategy type."""
+        direction = random.choice(['long', 'short'])
+        base = {"strategy_type": strategy_type, "direction": direction}
+
+        if strategy_type == 'sma_crossover':
+            fast = random.randint(5, 50)
+            slow = random.randint(fast + 15, fast + 150)
+            base.update({"sma_fast": fast, "sma_slow": slow})
+
+        elif strategy_type == 'ema_crossover':
+            fast = random.randint(5, 30)
+            slow = random.randint(fast + 10, fast + 80)
+            base.update({"ema_fast": fast, "ema_slow": slow})
+
+        elif strategy_type == 'breakout':
+            base.update({"breakout_period": random.randint(10, 96)})
+
+        elif strategy_type == 'volume_breakout':
+            base.update({
+                "volume_period": random.randint(10, 50),
+                "volume_multiplier": random.uniform(1.5, 4.0),
+                "price_period": random.randint(5, 20),
+            })
+
+        elif strategy_type == 'rsi_reversal':
+            buy = random.randint(20, 40)
+            sell = random.randint(60, 85)
+            base.update({
+                "rsi_period": random.randint(7, 21),
+                "rsi_threshold_buy": buy,
+                "rsi_threshold_sell": sell,
+            })
+
+        elif strategy_type == 'bollinger_bounce':
+            base.update({
+                "bollinger_period": random.randint(15, 40),
+                "bollinger_std": random.uniform(1.5, 3.0),
+            })
+
+        elif strategy_type == 'macd':
+            fast = random.randint(8, 16)
+            slow = random.randint(20, 35)
+            sig = random.randint(5, 12)
+            base.update({"macd_fast": fast, "macd_slow": slow, "macd_signal": sig})
+
+        elif strategy_type == 'orb':
+            base.update({"orb_bars": random.randint(2, 8)})
+
+        elif strategy_type == 'liquidity_sweep':
+            base.update({
+                "sweep_lookback": random.randint(10, 50),
+                "reclaim_bars": random.randint(1, 5),
+            })
+
+        # Optional RSI filter for non-RSI strategies
+        if strategy_type not in ['rsi_reversal'] and random.random() < 0.3:
+            base["rsi_filter"] = random.randint(65, 80)
+
+        return base
 
     def _perturb_parameter(self, param_name: str, current_value: float) -> float:
         """
@@ -276,19 +357,27 @@ class GeneticAlgorithmEngine:
         """
         # Define bounds for each parameter
         bounds = {
-            "sma_fast": (5, 100),
-            "sma_slow": (50, 500),
-            "rsi_threshold_buy": (10, 50),
-            "rsi_threshold_sell": (50, 90),
-            "bollinger_period": (10, 50),
-            "stop_loss_atr": (2.0, 6.0),
-            "take_profit_percent": (0.10, 0.50),
-            "size_amount": (0.1, 1.0),
+            "sma_fast": (3, 80),
+            "sma_slow": (30, 300),
+            "rsi_threshold_buy": (20, 50),
+            "rsi_threshold_sell": (50, 85),
+            "bollinger_period": (10, 40),
+            "stop_loss_atr": (1.0, 5.0),
+            "take_profit_percent": (0.01, 0.20),
+            "size_amount": (0.05, 0.5),
         }
+
+        # Safety: skip non-numeric values entirely
+        if not isinstance(current_value, (int, float)):
+            return current_value
 
         if param_name not in bounds:
             # Default perturbation: ±20%
-            return current_value * random.uniform(0.8, 1.2)
+            new_value = current_value * random.uniform(0.8, 1.2)
+            # Preserve int type for period/window params
+            if isinstance(current_value, int):
+                return max(1, int(round(new_value)))
+            return new_value
 
         min_val, max_val = bounds[param_name]
 
@@ -297,7 +386,12 @@ class GeneticAlgorithmEngine:
         new_value = current_value * perturbation
 
         # Enforce bounds
-        return max(min_val, min(max_val, new_value))
+        new_value = max(min_val, min(max_val, new_value))
+
+        # Preserve int type for period/window params
+        if isinstance(current_value, int):
+            return max(1, int(round(new_value)))
+        return new_value
 
 
 def create_elite_strategies_from_winners(

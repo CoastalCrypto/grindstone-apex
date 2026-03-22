@@ -17,7 +17,7 @@ from rich.text import Text
 from rich.console import Console
 from rich import box
 
-from src.database import SessionLocal, Strategy, LiveTrade, StrategyPerformance
+from src.database import SessionLocal, Strategy, LiveTrade, StrategyPerformance as DBStrategyPerformance
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 class SystemStatus(Static):
     """Display system status panel."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """Initialize status panel."""
-        super().__init__()
+        super().__init__(**kwargs)
         self.db = SessionLocal()
         self.update_interval = 1.0
 
@@ -36,8 +36,8 @@ class SystemStatus(Static):
         """Render status panel."""
         try:
             total_strategies = self.db.query(Strategy).count()
-            deployed_strategies = self.db.query(StrategyPerformance).filter(
-                StrategyPerformance.deployed == True
+            deployed_strategies = self.db.query(DBStrategyPerformance).filter(
+                DBStrategyPerformance.deployed == True
             ).count()
             open_positions = self.db.query(LiveTrade).filter(
                 LiveTrade.status == "open"
@@ -74,9 +74,9 @@ class SystemStatus(Static):
 class PositionsMonitor(Static):
     """Monitor open positions."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """Initialize positions monitor."""
-        super().__init__()
+        super().__init__(**kwargs)
         self.db = SessionLocal()
 
     def render(self) -> str:
@@ -136,19 +136,19 @@ class PositionsMonitor(Static):
             return f"[red]Error: {str(e)}[/red]"
 
 
-class StrategyPerformance(Static):
+class StrategyPerformanceView(Static):
     """Show top performing strategies."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """Initialize performance view."""
-        super().__init__()
+        super().__init__(**kwargs)
         self.db = SessionLocal()
 
     def render(self) -> str:
         """Render performance."""
         try:
-            strategies = self.db.query(StrategyPerformance).order_by(
-                StrategyPerformance.live_total_profit.desc()
+            strategies = self.db.query(DBStrategyPerformance).order_by(
+                DBStrategyPerformance.live_total_profit.desc()
             ).limit(10).all()
 
             if not strategies:
@@ -211,7 +211,7 @@ class DashboardScreen(Screen):
         yield Header()
         yield SystemStatus(id="status")
         yield PositionsMonitor(id="positions")
-        yield StrategyPerformance(id="performance")
+        yield StrategyPerformanceView(id="performance")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -223,9 +223,9 @@ class DashboardScreen(Screen):
 class GenerationMonitor(Static):
     """Monitor Ralph Loop generation progress."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """Initialize generation monitor."""
-        super().__init__()
+        super().__init__(**kwargs)
         self.db = SessionLocal()
 
     def render(self) -> str:
@@ -254,7 +254,7 @@ class GenerationMonitor(Static):
             table.add_row("Passed", str(recent_gen.strategies_passed))
             table.add_row("Pass Rate", f"{pass_rate:.1f}%")
             table.add_row("Status", recent_gen.status or "Unknown")
-            table.add_row("Created", recent_gen.created_at.strftime("%Y-%m-%d %H:%M:%S") if recent_gen.created_at else "N/A")
+            table.add_row("Started", recent_gen.started_at.strftime("%Y-%m-%d %H:%M:%S") if recent_gen.started_at else "N/A")
 
             return str(table)
 
@@ -265,9 +265,9 @@ class GenerationMonitor(Static):
 class AlertsLog(RichLog):
     """Real-time alerts log."""
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """Initialize alerts log."""
-        super().__init__(markup=True)
+        super().__init__(markup=True, **kwargs)
         self.max_lines = 100
 
     def add_alert(self, message: str, level: str = "INFO") -> None:
@@ -392,19 +392,19 @@ class GrindstoneApp:
                 self.install_screen(DashboardScreen(), name="dashboard")
                 self.install_screen(MonitoringScreen(), name="monitoring")
                 self.install_screen(SettingsScreen(), name="settings")
-                self.show_screen("dashboard")
+                self.switch_screen("dashboard")
 
             def action_show_dashboard(self) -> None:
                 """Show dashboard."""
-                self.show_screen("dashboard")
+                self.switch_screen("dashboard")
 
             def action_show_monitoring(self) -> None:
                 """Show monitoring."""
-                self.show_screen("monitoring")
+                self.switch_screen("monitoring")
 
             def action_show_settings(self) -> None:
                 """Show settings."""
-                self.show_screen("settings")
+                self.switch_screen("settings")
 
         self.app = GroundstoneTextApp()
 
