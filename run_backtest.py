@@ -338,13 +338,15 @@ def run_backtest_pipeline():
                 is_elite = s in elite
 
                 # Save Strategy record
+                # Note: columns are JSON type so SQLAlchemy handles serialization
+                # Do NOT use json.dumps() here or values get double-encoded
                 db_strategy = DBStrategy(
                     id=strat_id,
                     pair=pair,
-                    timeframes=json.dumps(params.get("timeframes", [15, 60, 240])),
-                    indicators=json.dumps(params.get("indicators", {})),
-                    position_sizing=json.dumps(params.get("position_sizing", {})),
-                    risk_management=json.dumps(params.get("risk_management", {})),
+                    timeframes=params.get("timeframes", [15, 60, 240]),
+                    indicators=params.get("indicators", {}),
+                    position_sizing=params.get("position_sizing", {}),
+                    risk_management=params.get("risk_management", {}),
                     source="genetic_algo",
                     generation_id=generation_id,
                     status="elite" if is_elite else "backtested",

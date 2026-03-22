@@ -170,7 +170,7 @@ class GeneticAlgorithmEngine:
 
         # Mutate each indicator parameter with probability
         # Skip non-numeric params like strategy_type and direction
-        NON_MUTABLE = {"strategy_type", "direction"}
+        NON_MUTABLE = {"strategy_type", "direction", "combo_indicators"}
         for param in mutated.indicators:
             if param in NON_MUTABLE:
                 continue
@@ -229,7 +229,7 @@ class GeneticAlgorithmEngine:
         child.indicators["direction"] = type_parent.indicators.get("direction", "long")
 
         # Crossover numeric parameters from both parents
-        NON_MUTABLE = {"strategy_type", "direction"}
+        NON_MUTABLE = {"strategy_type", "direction", "combo_indicators"}
         for key in parent1.indicators:
             if key in NON_MUTABLE:
                 continue
@@ -257,7 +257,9 @@ class GeneticAlgorithmEngine:
     # All available strategy types
     STRATEGY_TYPES = [
         'sma_crossover', 'ema_crossover', 'breakout', 'volume_breakout',
-        'rsi_reversal', 'bollinger_bounce', 'macd', 'orb', 'liquidity_sweep'
+        'rsi_reversal', 'bollinger_bounce', 'macd', 'orb', 'liquidity_sweep',
+        'fib_retracement', 'stochastic', 'adx_trend', 'ichimoku',
+        'ad_line', 'aroon', 'combo'
     ]
 
     def _generate_random_strategy(self) -> Strategy:
@@ -338,6 +340,86 @@ class GeneticAlgorithmEngine:
                 "reclaim_bars": random.randint(1, 5),
             })
 
+        elif strategy_type == 'fib_retracement':
+            base.update({
+                "fib_lookback": random.randint(20, 100),
+                "fib_level": random.choice([0.236, 0.382, 0.5, 0.618, 0.786]),
+                "fib_tolerance": random.uniform(0.002, 0.015),
+                "trend_period": random.randint(20, 60),
+            })
+
+        elif strategy_type == 'stochastic':
+            base.update({
+                "stoch_k_period": random.randint(5, 21),
+                "stoch_d_period": random.randint(3, 9),
+                "stoch_oversold": random.randint(15, 30),
+                "stoch_overbought": random.randint(70, 85),
+            })
+
+        elif strategy_type == 'adx_trend':
+            base.update({
+                "adx_period": random.randint(10, 28),
+                "adx_threshold": random.uniform(20.0, 35.0),
+                "di_period": random.randint(10, 28),
+            })
+
+        elif strategy_type == 'ichimoku':
+            base.update({
+                "tenkan_period": random.randint(7, 12),
+                "kijun_period": random.randint(20, 30),
+                "senkou_b_period": random.randint(44, 60),
+                "displacement": random.randint(22, 30),
+            })
+
+        elif strategy_type == 'ad_line':
+            base.update({
+                "ad_ema_fast": random.randint(3, 12),
+                "ad_ema_slow": random.randint(15, 40),
+            })
+
+        elif strategy_type == 'aroon':
+            base.update({
+                "aroon_period": random.randint(14, 50),
+                "aroon_threshold": random.uniform(60.0, 85.0),
+            })
+
+        elif strategy_type == 'combo':
+            # Combo: pick 2-3 indicators from a pool and require ALL to agree
+            pool = ['rsi', 'macd', 'bollinger', 'stochastic', 'adx', 'ema', 'volume']
+            n_indicators = random.randint(2, 3)
+            chosen = random.sample(pool, n_indicators)
+            base["combo_indicators"] = ",".join(chosen)
+            # Always include params for each chosen indicator
+            if 'rsi' in chosen:
+                base["rsi_period"] = random.randint(7, 21)
+                base["rsi_threshold_buy"] = random.randint(25, 40)
+                base["rsi_threshold_sell"] = random.randint(60, 80)
+            if 'macd' in chosen:
+                fast = random.randint(8, 16)
+                slow = random.randint(20, 35)
+                base["macd_fast"] = fast
+                base["macd_slow"] = slow
+                base["macd_signal"] = random.randint(5, 12)
+            if 'bollinger' in chosen:
+                base["bollinger_period"] = random.randint(15, 35)
+                base["bollinger_std"] = random.uniform(1.5, 2.8)
+            if 'stochastic' in chosen:
+                base["stoch_k_period"] = random.randint(5, 21)
+                base["stoch_d_period"] = random.randint(3, 9)
+                base["stoch_oversold"] = random.randint(15, 30)
+                base["stoch_overbought"] = random.randint(70, 85)
+            if 'adx' in chosen:
+                base["adx_period"] = random.randint(10, 28)
+                base["adx_threshold"] = random.uniform(20.0, 35.0)
+                base["di_period"] = random.randint(10, 28)
+            if 'ema' in chosen:
+                fast = random.randint(5, 20)
+                base["ema_fast"] = fast
+                base["ema_slow"] = random.randint(fast + 10, fast + 60)
+            if 'volume' in chosen:
+                base["volume_period"] = random.randint(10, 40)
+                base["volume_multiplier"] = random.uniform(1.3, 3.0)
+
         # Optional RSI filter for non-RSI strategies
         if strategy_type not in ['rsi_reversal'] and random.random() < 0.3:
             base["rsi_filter"] = random.randint(65, 80)
@@ -365,6 +447,25 @@ class GeneticAlgorithmEngine:
             "stop_loss_atr": (1.0, 5.0),
             "take_profit_percent": (0.01, 0.20),
             "size_amount": (0.05, 0.5),
+            "fib_lookback": (15, 120),
+            "fib_level": (0.15, 0.88),
+            "fib_tolerance": (0.001, 0.025),
+            "trend_period": (15, 80),
+            "stoch_k_period": (3, 30),
+            "stoch_d_period": (2, 14),
+            "stoch_oversold": (10, 35),
+            "stoch_overbought": (65, 90),
+            "adx_period": (7, 40),
+            "adx_threshold": (15.0, 45.0),
+            "di_period": (7, 40),
+            "tenkan_period": (5, 15),
+            "kijun_period": (15, 40),
+            "senkou_b_period": (35, 70),
+            "displacement": (18, 35),
+            "ad_ema_fast": (2, 15),
+            "ad_ema_slow": (10, 50),
+            "aroon_period": (10, 60),
+            "aroon_threshold": (50.0, 95.0),
         }
 
         # Safety: skip non-numeric values entirely

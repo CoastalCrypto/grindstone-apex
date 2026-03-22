@@ -227,8 +227,16 @@ async def cmd_elite(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 strat = db.query(Strategy).filter(Strategy.id == r.strategy_id).first()
                 stype = ""
                 if strat and strat.indicators:
-                    ind = strat.indicators if isinstance(strat.indicators, dict) else {}
-                    stype = f" ({ind.get('strategy_type', '?')} {ind.get('direction', '?')})"
+                    ind = strat.indicators
+                    # Handle double-encoded JSON strings from older saves
+                    if isinstance(ind, str):
+                        try:
+                            import json as _json
+                            ind = _json.loads(ind)
+                        except (ValueError, TypeError):
+                            ind = {}
+                    if isinstance(ind, dict):
+                        stype = f" ({ind.get('strategy_type', '?')} {ind.get('direction', '?')})"
 
                 # Show short ID for reference
                 short_id = r.strategy_id[-8:] if r.strategy_id else "?"
@@ -265,15 +273,39 @@ async def cmd_inspect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    search_id = context.args[0].strip()
+    # Handle users typing "/inspect ID da0249ea" — skip the literal word "ID"
+    args = [a for a in context.args if a.upper() not in ("ID", "-")]
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/inspect ID`\n"
+            "Use the short ID from /elite (e.g. `/inspect a1b2c3d4`)",
+            parse_mode="Markdown"
+        )
+        return
+
+    search_id = args[0].strip().lstrip("-")
     db = get_db()
     try:
-        # Try exact match first, then partial match on ending
+        # Try exact match first
         strat = db.query(Strategy).filter(Strategy.id == search_id).first()
+        # Then partial match — contains anywhere in the ID
         if not strat:
-            strat = db.query(Strategy).filter(Strategy.id.like(f"%{search_id}")).first()
+            strat = db.query(Strategy).filter(Strategy.id.like(f"%{search_id}%")).first()
+        # Try with strat_ prefix
         if not strat:
-            await update.message.reply_text(f"❌ No strategy found matching `{search_id}`", parse_mode="Markdown")
+            strat = db.query(Strategy).filter(Strategy.id.like(f"strat_%{search_id}%")).first()
+        if not strat:
+            # Show what IDs exist to help debug
+            sample = db.query(Strategy).order_by(desc(Strategy.created_at)).limit(3).all()
+            hint = ""
+            if sample:
+                hint = "\n\nRecent strategy IDs:\n" + "\n".join(
+                    f"  `{s.id}` (short: `{s.id[-8:]}`)" for s in sample
+                )
+            await update.message.reply_text(
+                f"❌ No strategy found matching `{search_id}`{hint}",
+                parse_mode="Markdown"
+            )
             return
 
         # Get backtest results
@@ -286,9 +318,35 @@ async def cmd_inspect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             StrategyPerformance.strategy_id == strat.id
         ).first()
 
-        indicators = strat.indicators if isinstance(strat.indicators, dict) else {}
-        risk = strat.risk_management if isinstance(strat.risk_management, dict) else {}
-        pos = strat.position_sizing if isinstance(strat.position_sizing, dict) else {}
+        import json as _json
+
+        def _parse_json_field(val):
+            """Handle dict, JSON string, or double/triple-encoded JSON."""
+            if isinstance(val, dict):
+                return val
+            if isinstance(val, list):
+                return {}
+            if isinstance(val, str):
+                # Keep unwrapping until we get a dict or fail
+                current = val
+                for _ in range(3):  # max 3 levels of encoding
+                    try:
+                        current = _json.loads(current)
+                        if isinstance(current, dict):
+                            return current
+                    except (ValueError, TypeError):
+                        break
+            return {}
+
+        # Debug: log raw field types to diagnose display issues
+        logger.info(f"INSPECT DEBUG - indicators type: {type(strat.indicators).__name__}, "
+                     f"value preview: {str(strat.indicators)[:200]}")
+
+        indicators = _parse_json_field(strat.indicators)
+        risk = _parse_json_field(strat.risk_management)
+        pos = _parse_json_field(strat.position_sizing)
+
+        logger.info(f"INSPECT DEBUG - parsed indicators: {indicators}")
 
         msg = (
             f"🔍 *Strategy Details*\n"
@@ -356,8 +414,14 @@ async def cmd_inspect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         msg += f"\n💡 Deploy with: `/deploy {strat.id[-8:]}`"
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        try:
+            await update.message.reply_text(msg, parse_mode="Markdown")
+        except Exception:
+            # If Markdown parsing fails (special chars), send as plain text
+            await update.message.reply_text(msg)
 
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error inspecting strategy: {e}")
     finally:
         db.close()
 
@@ -377,13 +441,26 @@ async def cmd_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    search_id = context.args[0].strip()
+    # Handle users typing "/deploy ID abc123" — skip the literal word "ID"
+    args = [a for a in context.args if a.upper() not in ("ID", "-")]
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/deploy ID`\n"
+            "Use the short ID from /elite or /inspect\n"
+            "Example: `/deploy a1b2c3d4`",
+            parse_mode="Markdown"
+        )
+        return
+
+    search_id = args[0].strip().lstrip("-")
     db = get_db()
     try:
         # Find strategy by exact or partial ID
         strat = db.query(Strategy).filter(Strategy.id == search_id).first()
         if not strat:
-            strat = db.query(Strategy).filter(Strategy.id.like(f"%{search_id}")).first()
+            strat = db.query(Strategy).filter(Strategy.id.like(f"%{search_id}%")).first()
+        if not strat:
+            strat = db.query(Strategy).filter(Strategy.id.like(f"strat_%{search_id}%")).first()
         if not strat:
             await update.message.reply_text(f"❌ No strategy found matching `{search_id}`", parse_mode="Markdown")
             return

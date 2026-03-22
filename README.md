@@ -88,8 +88,15 @@ You control everything from your phone via a **Telegram bot**.
 | **MACD** | MACD line crosses signal line |
 | **Opening Range Breakout** | Price breaks the high/low of the first N bars |
 | **Liquidity Sweep** | Price sweeps previous swing then reverses |
+| **Fibonacci Retracement** | Enter on pullback to Fibonacci level in trend direction |
+| **Stochastic Oscillator** | %K/%D crossover in oversold/overbought zones |
+| **ADX Trend** | Trade +DI/-DI crossovers when ADX confirms strong trend |
+| **Ichimoku Cloud** | Tenkan/Kijun cross above or below the cloud |
+| **Accumulation/Distribution** | A/D line EMA crossover detects money flow |
+| **Aroon** | Aroon Up/Down crossover signals trend changes |
+| **Combo** | 2-3 indicators must agree (e.g., RSI + MACD + Bollinger) |
 
-Each strategy also has configurable take-profit, stop-loss (ATR-based), and position sizing parameters that evolve through the genetic algorithm.
+Each strategy also has configurable take-profit, stop-loss (ATR-based), and position sizing parameters that evolve through the genetic algorithm. The **combo** strategy is where the real power is — it randomly picks 2-3 indicators from the pool and only triggers when ALL of them agree within a 3-bar window, dramatically reducing false signals.
 
 ---
 

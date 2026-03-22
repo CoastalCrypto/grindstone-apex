@@ -199,6 +199,225 @@ class VectorBTBacktestEngine:
                 if high[i] > recent_high and close[i] < recent_high:
                     sell_signal[i] = True
 
+        elif strategy_type == 'fib_retracement':
+            fib_lookback = int(round(indicators.get('fib_lookback', 50)))
+            fib_level = indicators.get('fib_level', 0.618)
+            fib_tolerance = indicators.get('fib_tolerance', 0.005)
+            trend_period = int(round(indicators.get('trend_period', 30)))
+
+            # EMA for trend direction
+            trend_ema = self._calculate_ema(close, trend_period)
+
+            for i in range(fib_lookback + 1, n):
+                window_high = np.max(high[i - fib_lookback:i])
+                window_low = np.min(low[i - fib_lookback:i])
+                swing_range = window_high - window_low
+
+                if swing_range < 1e-10:
+                    continue
+
+                # Uptrend: price above EMA, pullback to fib level = buy
+                if close[i] > trend_ema[i]:
+                    fib_price = window_high - (swing_range * fib_level)
+                    if abs(close[i] - fib_price) / fib_price < fib_tolerance:
+                        buy_signal[i] = True
+                    if close[i] >= window_high * 0.998:
+                        sell_signal[i] = True
+
+                # Downtrend: price below EMA, pullback up to fib level = sell
+                elif close[i] < trend_ema[i]:
+                    fib_price = window_low + (swing_range * fib_level)
+                    if abs(close[i] - fib_price) / fib_price < fib_tolerance:
+                        sell_signal[i] = True
+                    if close[i] <= window_low * 1.002:
+                        buy_signal[i] = True
+
+        # ─── STOCHASTIC OSCILLATOR ───
+        elif strategy_type == 'stochastic':
+            k_period = int(round(indicators.get('stoch_k_period', 14)))
+            d_period = int(round(indicators.get('stoch_d_period', 3)))
+            oversold = indicators.get('stoch_oversold', 20)
+            overbought = indicators.get('stoch_overbought', 80)
+
+            k, d = self._calculate_stochastic(high, low, close, k_period, d_period)
+
+            # Buy when %K crosses above %D in oversold zone
+            for i in range(1, n):
+                if not np.isnan(k[i]) and not np.isnan(d[i]):
+                    if k[i] > d[i] and k[i - 1] <= d[i - 1] and k[i] < oversold + 15:
+                        buy_signal[i] = True
+                    if k[i] < d[i] and k[i - 1] >= d[i - 1] and k[i] > overbought - 15:
+                        sell_signal[i] = True
+
+        # ─── ADX TREND ───
+        elif strategy_type == 'adx_trend':
+            adx_period = int(round(indicators.get('adx_period', 14)))
+            adx_thresh = indicators.get('adx_threshold', 25.0)
+            di_period = int(round(indicators.get('di_period', 14)))
+
+            adx, plus_di, minus_di = self._calculate_adx(high, low, close, adx_period)
+
+            for i in range(1, n):
+                if np.isnan(adx[i]):
+                    continue
+                # Strong trend + DI crossover
+                if adx[i] > adx_thresh:
+                    if plus_di[i] > minus_di[i] and plus_di[i - 1] <= minus_di[i - 1]:
+                        buy_signal[i] = True
+                    elif minus_di[i] > plus_di[i] and minus_di[i - 1] <= plus_di[i - 1]:
+                        sell_signal[i] = True
+
+        # ─── ICHIMOKU CLOUD ───
+        elif strategy_type == 'ichimoku':
+            tenkan_p = int(round(indicators.get('tenkan_period', 9)))
+            kijun_p = int(round(indicators.get('kijun_period', 26)))
+            senkou_b_p = int(round(indicators.get('senkou_b_period', 52)))
+
+            ichi = self._calculate_ichimoku(high, low, close, tenkan_p, kijun_p, senkou_b_p)
+            tenkan = ichi["tenkan"]
+            kijun = ichi["kijun"]
+            senkou_a = ichi["senkou_a"]
+            senkou_b = ichi["senkou_b"]
+
+            for i in range(1, n):
+                if np.isnan(tenkan[i]) or np.isnan(kijun[i]):
+                    continue
+                # TK cross above cloud = buy
+                if (tenkan[i] > kijun[i] and tenkan[i - 1] <= kijun[i - 1]
+                        and close[i] > max(senkou_a[i], senkou_b[i])):
+                    buy_signal[i] = True
+                # TK cross below cloud = sell
+                elif (tenkan[i] < kijun[i] and tenkan[i - 1] >= kijun[i - 1]
+                      and close[i] < min(senkou_a[i], senkou_b[i])):
+                    sell_signal[i] = True
+
+        # ─── ACCUMULATION/DISTRIBUTION LINE ───
+        elif strategy_type == 'ad_line':
+            fast_p = int(round(indicators.get('ad_ema_fast', 5)))
+            slow_p = int(round(indicators.get('ad_ema_slow', 20)))
+
+            ad = self._calculate_ad_line(high, low, close, volume)
+            ad_fast = self._calculate_ema(ad, fast_p)
+            ad_slow = self._calculate_ema(ad, slow_p)
+
+            # AD line EMA crossover signals
+            buy_signal = (ad_fast > ad_slow) & (np.roll(ad_fast, 1) <= np.roll(ad_slow, 1))
+            sell_signal = (ad_fast < ad_slow) & (np.roll(ad_fast, 1) >= np.roll(ad_slow, 1))
+
+        # ─── AROON INDICATOR ───
+        elif strategy_type == 'aroon':
+            aroon_period = int(round(indicators.get('aroon_period', 25)))
+            aroon_thresh = indicators.get('aroon_threshold', 70.0)
+
+            aroon_up, aroon_down = self._calculate_aroon(high, low, aroon_period)
+
+            for i in range(1, n):
+                if np.isnan(aroon_up[i]):
+                    continue
+                # Aroon Up crosses above threshold and above Aroon Down
+                if aroon_up[i] > aroon_thresh and aroon_up[i] > aroon_down[i] and aroon_up[i - 1] <= aroon_down[i - 1]:
+                    buy_signal[i] = True
+                if aroon_down[i] > aroon_thresh and aroon_down[i] > aroon_up[i] and aroon_down[i - 1] <= aroon_up[i - 1]:
+                    sell_signal[i] = True
+
+        # ─── COMBO: Multiple indicators must agree ───
+        elif strategy_type == 'combo':
+            combo_str = indicators.get('combo_indicators', 'rsi,macd')
+            combo_list = [x.strip() for x in combo_str.split(',')]
+
+            # Calculate individual buy/sell signals for each indicator
+            all_buy = np.ones(n, dtype=bool)
+            all_sell = np.ones(n, dtype=bool)
+            has_any = False
+
+            for ind in combo_list:
+                b = np.zeros(n, dtype=bool)
+                s = np.zeros(n, dtype=bool)
+
+                if ind == 'rsi':
+                    rsi_p = int(round(indicators.get('rsi_period', 14)))
+                    rsi_buy = indicators.get('rsi_threshold_buy', 30)
+                    rsi_sell = indicators.get('rsi_threshold_sell', 70)
+                    rsi = self._calculate_rsi(close, rsi_p)
+                    b = (rsi > rsi_buy) & (np.roll(rsi, 1) <= rsi_buy)
+                    s = (rsi < rsi_sell) & (np.roll(rsi, 1) >= rsi_sell)
+
+                elif ind == 'macd':
+                    fp = int(round(indicators.get('macd_fast', 12)))
+                    sp = int(round(indicators.get('macd_slow', 26)))
+                    sgp = int(round(indicators.get('macd_signal', 9)))
+                    ml, sl = self._calculate_macd(close, fp, sp, sgp)
+                    b = (ml > sl) & (np.roll(ml, 1) <= np.roll(sl, 1))
+                    s = (ml < sl) & (np.roll(ml, 1) >= np.roll(sl, 1))
+
+                elif ind == 'bollinger':
+                    bp = int(round(indicators.get('bollinger_period', 20)))
+                    bs = indicators.get('bollinger_std', 2.0)
+                    bb_u, bb_l, bb_m = self._calculate_bollinger_bands(close, bp, bs)
+                    b = close <= bb_l
+                    s = close >= bb_u
+
+                elif ind == 'stochastic':
+                    kp = int(round(indicators.get('stoch_k_period', 14)))
+                    dp = int(round(indicators.get('stoch_d_period', 3)))
+                    k, d = self._calculate_stochastic(high, low, close, kp, dp)
+                    os_lvl = indicators.get('stoch_oversold', 20)
+                    ob_lvl = indicators.get('stoch_overbought', 80)
+                    for i in range(1, n):
+                        if not np.isnan(k[i]) and not np.isnan(d[i]):
+                            if k[i] > d[i] and k[i - 1] <= d[i - 1] and k[i] < os_lvl + 15:
+                                b[i] = True
+                            if k[i] < d[i] and k[i - 1] >= d[i - 1] and k[i] > ob_lvl - 15:
+                                s[i] = True
+
+                elif ind == 'adx':
+                    ap = int(round(indicators.get('adx_period', 14)))
+                    adx, pdi, mdi = self._calculate_adx(high, low, close, ap)
+                    at = indicators.get('adx_threshold', 25.0)
+                    for i in range(1, n):
+                        if not np.isnan(adx[i]) and adx[i] > at:
+                            if pdi[i] > mdi[i]:
+                                b[i] = True
+                            else:
+                                s[i] = True
+
+                elif ind == 'ema':
+                    fp = int(round(indicators.get('ema_fast', 12)))
+                    sp = int(round(indicators.get('ema_slow', 26)))
+                    if fp >= sp:
+                        sp = fp + 14
+                    ef = self._calculate_ema(close, fp)
+                    es = self._calculate_ema(close, sp)
+                    b = (ef > es) & (np.roll(ef, 1) <= np.roll(es, 1))
+                    s = (ef < es) & (np.roll(ef, 1) >= np.roll(es, 1))
+
+                elif ind == 'volume':
+                    vp = int(round(indicators.get('volume_period', 20)))
+                    vm = indicators.get('volume_multiplier', 2.0)
+                    avg_vol = pd.Series(volume).rolling(vp).mean().values
+                    vol_spike = volume > (avg_vol * vm)
+                    b = vol_spike & (close > np.roll(close, 1))
+                    s = vol_spike & (close < np.roll(close, 1))
+
+                has_any = True
+                # For combo: use OR within 3-bar window to allow slight timing differences
+                # Then AND across all indicators
+                b_wide = np.zeros(n, dtype=bool)
+                s_wide = np.zeros(n, dtype=bool)
+                for i in range(n):
+                    lo = max(0, i - 2)
+                    if np.any(b[lo:i + 1]):
+                        b_wide[i] = True
+                    if np.any(s[lo:i + 1]):
+                        s_wide[i] = True
+
+                all_buy = all_buy & b_wide
+                all_sell = all_sell & s_wide
+
+            if has_any:
+                buy_signal = all_buy
+                sell_signal = all_sell
+
         # ─── Apply RSI filter if present (for any strategy type) ───
         if 'rsi_filter' in indicators and strategy_type not in ['rsi_reversal']:
             rsi = self._calculate_rsi(close, 14)
@@ -398,6 +617,75 @@ class VectorBTBacktestEngine:
         macd_line = ema_fast - ema_slow
         signal_line = pd.Series(macd_line).ewm(span=signal, adjust=False).mean().values
         return macd_line, signal_line
+
+    def _calculate_stochastic(self, high: np.ndarray, low: np.ndarray,
+                                close: np.ndarray, k_period: int = 14,
+                                d_period: int = 3) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate Stochastic Oscillator %K and %D."""
+        h = pd.Series(high).rolling(k_period).max()
+        l = pd.Series(low).rolling(k_period).min()
+        k = 100 * ((pd.Series(close) - l) / (h - l + 1e-10))
+        d = k.rolling(d_period).mean()
+        return k.values, d.values
+
+    def _calculate_adx(self, high: np.ndarray, low: np.ndarray,
+                       close: np.ndarray, period: int = 14) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Calculate ADX, +DI, -DI."""
+        h, l, c = pd.Series(high), pd.Series(low), pd.Series(close)
+        tr1 = h - l
+        tr2 = (h - c.shift(1)).abs()
+        tr3 = (l - c.shift(1)).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(period).mean()
+
+        up_move = h - h.shift(1)
+        down_move = l.shift(1) - l
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+        plus_di = 100 * (plus_dm.rolling(period).mean() / (atr + 1e-10))
+        minus_di = 100 * (minus_dm.rolling(period).mean() / (atr + 1e-10))
+        dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-10))
+        adx = dx.rolling(period).mean()
+        return adx.values, plus_di.values, minus_di.values
+
+    def _calculate_ichimoku(self, high: np.ndarray, low: np.ndarray,
+                            close: np.ndarray, tenkan: int = 9,
+                            kijun: int = 26, senkou_b: int = 52) -> dict:
+        """Calculate Ichimoku cloud components."""
+        h, l = pd.Series(high), pd.Series(low)
+        tenkan_sen = (h.rolling(tenkan).max() + l.rolling(tenkan).min()) / 2
+        kijun_sen = (h.rolling(kijun).max() + l.rolling(kijun).min()) / 2
+        senkou_a = ((tenkan_sen + kijun_sen) / 2)
+        senkou_b_line = ((h.rolling(senkou_b).max() + l.rolling(senkou_b).min()) / 2)
+        return {
+            "tenkan": tenkan_sen.values,
+            "kijun": kijun_sen.values,
+            "senkou_a": senkou_a.values,
+            "senkou_b": senkou_b_line.values,
+        }
+
+    def _calculate_ad_line(self, high: np.ndarray, low: np.ndarray,
+                           close: np.ndarray, volume: np.ndarray) -> np.ndarray:
+        """Calculate Accumulation/Distribution Line."""
+        mfm = ((close - low) - (high - close)) / (high - low + 1e-10)
+        mfv = mfm * volume
+        return np.cumsum(mfv)
+
+    def _calculate_aroon(self, high: np.ndarray, low: np.ndarray,
+                         period: int = 25) -> Tuple[np.ndarray, np.ndarray]:
+        """Calculate Aroon Up and Aroon Down."""
+        n = len(high)
+        aroon_up = np.full(n, np.nan)
+        aroon_down = np.full(n, np.nan)
+        for i in range(period, n):
+            window_h = high[i - period:i + 1]
+            window_l = low[i - period:i + 1]
+            days_since_high = period - np.argmax(window_h)
+            days_since_low = period - np.argmin(window_l)
+            aroon_up[i] = 100 * (period - days_since_high) / period
+            aroon_down[i] = 100 * (period - days_since_low) / period
+        return aroon_up, aroon_down
 
     def _remove_consecutive(self, signals: np.ndarray) -> np.ndarray:
         signals = signals.copy()
