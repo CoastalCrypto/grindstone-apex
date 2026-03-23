@@ -201,67 +201,104 @@ class LiveTradingService:
 
     def _generate_signal(self, strategy: Strategy, candles_data: Dict) -> Optional[Dict]:
         """
-        Generate trading signal from candles.
+        Generate trading signal from candles using the full strategy-type dispatch.
+
+        Runs the VectorBT signal logic on recent candle data and checks if
+        the last few bars produced an entry signal.
 
         Args:
             strategy: Strategy object
-            candles_data: Dict of timeframe -> candles
+            candles_data: Dict of timeframe -> candles (keyed by int, e.g. 15)
 
         Returns:
-            Signal dict or None
+            Signal dict with keys {type, price, confidence, timestamp} or None
         """
         try:
-            # Use strategy parameters to generate signals
+            from src.backtesting.vectorbt_engine import VectorBTBacktestEngine
+
+            # candles_data is keyed by int (15, 60, 240)
+            candles = candles_data.get(15) or candles_data.get("15m")
+            if candles is None or not hasattr(candles, 'empty') or candles.empty:
+                logger.warning("No 15m candles available for signal generation")
+                return None
+
+            # Need enough history for indicators to warm up
+            if len(candles) < 100:
+                logger.warning(f"Not enough candle history: {len(candles)} bars")
+                return None
+
+            # Build strategy_params dict from the Strategy object
             indicators = strategy.indicators or {}
             if isinstance(indicators, str):
                 import json as _json
                 try:
                     indicators = _json.loads(indicators)
+                    # Handle double-encoded JSON
+                    if isinstance(indicators, str):
+                        indicators = _json.loads(indicators)
                 except Exception:
                     indicators = {}
 
-            # candles_data is keyed by int (15, 60, 240) — try int first, then "15m"
-            latest_candles = candles_data.get(15) or candles_data.get("15m")
-            if latest_candles is None or not hasattr(latest_candles, 'empty') or latest_candles.empty or len(latest_candles) < 50:
-                return None
+            strategy_params = {
+                "strategy_type": strategy.strategy_type or "sma_crossover",
+                "direction": strategy.direction or "long",
+                "indicators": indicators,
+            }
 
-            latest = latest_candles.iloc[-1]
-            prev = latest_candles.iloc[-2] if len(latest_candles) > 1 else None
+            # Run signal generation on the full candle history
+            engine = VectorBTBacktestEngine()
+            buy_signals, sell_signals = engine._generate_signals(candles, strategy_params)
 
-            # Simple SMA crossover signal (can be enhanced with strategy params)
-            sma_fast = indicators.get("sma_fast", 10)
-            sma_slow = indicators.get("sma_slow", 30)
+            direction = strategy.direction or "long"
+            latest_price = float(candles["close"].iloc[-1])
 
-            if len(latest_candles) >= sma_slow:
-                fast_ma = latest_candles["close"].iloc[-sma_fast:].mean()
-                slow_ma = latest_candles["close"].iloc[-sma_slow:].mean()
+            # Check last 3 bars for a fresh signal (avoid acting on old ones)
+            look_back = 3
+            recent_buy = buy_signals.iloc[-look_back:].any()
+            recent_sell = sell_signals.iloc[-look_back:].any()
 
-                # Bullish crossover
-                if prev is not None:
-                    prev_fast_ma = latest_candles["close"].iloc[-(sma_fast+1):-1].mean()
-                    prev_slow_ma = latest_candles["close"].iloc[-(sma_slow+1):-1].mean()
+            if direction == "long":
+                if recent_buy:
+                    logger.info(f"  → BUY signal for {strategy.strategy_type} (long)")
+                    return {
+                        "type": "buy",
+                        "price": latest_price,
+                        "confidence": 0.75,
+                        "timestamp": datetime.utcnow()
+                    }
+                if recent_sell:
+                    logger.info(f"  → SELL/EXIT signal for {strategy.strategy_type} (long)")
+                    return {
+                        "type": "sell",
+                        "price": latest_price,
+                        "confidence": 0.75,
+                        "timestamp": datetime.utcnow()
+                    }
 
-                    if prev_fast_ma <= prev_slow_ma and fast_ma > slow_ma:
-                        return {
-                            "type": "buy",
-                            "price": latest["close"],
-                            "confidence": 0.7,
-                            "timestamp": datetime.utcnow()
-                        }
-
-                    # Bearish crossover
-                    elif prev_fast_ma >= prev_slow_ma and fast_ma < slow_ma:
-                        return {
-                            "type": "sell",
-                            "price": latest["close"],
-                            "confidence": 0.7,
-                            "timestamp": datetime.utcnow()
-                        }
+            elif direction == "short":
+                # For shorts: sell_signal = entry, buy_signal = exit
+                if recent_sell:
+                    logger.info(f"  → SHORT entry signal for {strategy.strategy_type}")
+                    return {
+                        "type": "buy",   # mapped to "buy" so caller opens a position
+                        "price": latest_price,
+                        "confidence": 0.75,
+                        "direction": "short",
+                        "timestamp": datetime.utcnow()
+                    }
+                if recent_buy:
+                    logger.info(f"  → SHORT exit signal for {strategy.strategy_type}")
+                    return {
+                        "type": "sell",
+                        "price": latest_price,
+                        "confidence": 0.75,
+                        "timestamp": datetime.utcnow()
+                    }
 
             return None
 
         except Exception as e:
-            logger.error(f"Error generating signal: {e}")
+            logger.error(f"Error generating signal: {e}", exc_info=True)
             return None
 
     def _execute_entry(self, strategy_id: str, strategy: Strategy,
@@ -293,8 +330,8 @@ class LiveTradingService:
             risk_mgmt = strategy.risk_management or {}
             atr_multiplier = risk_mgmt.get("atr_multiplier", 3)
 
-            # Simple ATR calculation
-            candles = self.loader.load_candles(pair, "15m", 365)
+            # Simple ATR calculation (use int timeframe, not string)
+            candles = self.loader.load_candles(pair, 15, 365)
             if not candles.empty:
                 atr = self._calculate_atr(candles, periods=14)
                 stop_loss = entry_price - (atr * atr_multiplier)
@@ -399,7 +436,10 @@ class LiveTradingService:
             candles_data: Candles by timeframe
         """
         try:
-            current_price = candles_data["15m"].iloc[-1]["close"]
+            _c = candles_data.get(15) or candles_data.get("15m")
+            if _c is None or not hasattr(_c, 'empty') or _c.empty:
+                return
+            current_price = _c.iloc[-1]["close"]
             trade = self.db.query(LiveTrade).filter(
                 LiveTrade.id == position["id"]
             ).first()
