@@ -392,19 +392,30 @@ class GrindstoneApp:
                 self.install_screen(DashboardScreen(), name="dashboard")
                 self.install_screen(MonitoringScreen(), name="monitoring")
                 self.install_screen(SettingsScreen(), name="settings")
-                self.switch_screen("dashboard")
+                # Use push_screen instead of switch_screen on mount
+                # switch_screen pops the default screen which has no callbacks yet
+                self.push_screen("dashboard")
 
             def action_show_dashboard(self) -> None:
                 """Show dashboard."""
-                self.switch_screen("dashboard")
+                try:
+                    self.switch_screen("dashboard")
+                except (IndexError, Exception):
+                    self.push_screen("dashboard")
 
             def action_show_monitoring(self) -> None:
                 """Show monitoring."""
-                self.switch_screen("monitoring")
+                try:
+                    self.switch_screen("monitoring")
+                except (IndexError, Exception):
+                    self.push_screen("monitoring")
 
             def action_show_settings(self) -> None:
                 """Show settings."""
-                self.switch_screen("settings")
+                try:
+                    self.switch_screen("settings")
+                except (IndexError, Exception):
+                    self.push_screen("settings")
 
         self.app = GroundstoneTextApp()
 

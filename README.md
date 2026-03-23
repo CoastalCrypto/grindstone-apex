@@ -30,7 +30,9 @@ You control everything from your phone via a **Telegram bot**.
 
 ## Key Features
 
-**9 Strategy Types** — SMA crossover, EMA crossover, Donchian breakout, volume breakout, RSI mean reversion, Bollinger bounce, MACD, opening range breakout, and liquidity sweeps.
+**16 Strategy Types** — SMA, EMA, MACD, RSI, Bollinger, Stochastic, ADX, Ichimoku Cloud, Aroon, Accumulation/Distribution, Fibonacci Retracement, Donchian Breakout, Volume Breakout, Opening Range Breakout, Liquidity Sweep, and the powerful Combo system.
+
+**Combo Indicator System** — The genetic algorithm can stack 2-3 indicators together (e.g., RSI + MACD + Bollinger) and require ALL to agree within a 3-bar window before signaling. Dramatically reduces false entries.
 
 **Long & Short** — Every strategy can trade both directions. The genetic algorithm evolves the optimal direction for each market condition.
 

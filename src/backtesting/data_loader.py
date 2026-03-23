@@ -134,7 +134,11 @@ class HistoricalDataLoader:
         """Fetch data from CCXT exchange."""
         try:
             # Convert timeframe to CCXT format
-            timeframe_str = f"{timeframe}m"
+            # Blofin uses 1H/4H not 60m/240m
+            tf_map = {1: "1m", 5: "5m", 15: "15m", 30: "30m",
+                       60: "1H", 120: "2H", 240: "4H", 360: "6H",
+                       720: "12H", 1440: "1D"}
+            timeframe_str = tf_map.get(timeframe, f"{timeframe}m")
 
             all_candles = []
             end_date = datetime.utcnow()
