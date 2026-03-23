@@ -42,7 +42,8 @@ class LiveTradingService:
             exchange_type=settings.live_exchange,
             sandbox=settings.sandbox_mode
         )
-        self.position_manager = PositionManager(self.db, self.connector)
+        # PositionManager expects (connector, db) — db was previously passed first by mistake
+        self.position_manager = PositionManager(self.connector, self.db)
         self.performance_monitor = PerformanceMonitor(self.db)
         self.alert_system = AlertSystem()
 
@@ -142,15 +143,27 @@ class LiveTradingService:
         """
         strategy = strategy_data["strategy"]
         pair = strategy.pair
-        timeframes = strategy.timeframes or ["15m"]
+
+        # Timeframes stored as JSON list of ints [15, 60, 240] or strings
+        # Always normalize to integers for the loader
+        raw_timeframes = strategy.timeframes or [15]
+        if isinstance(raw_timeframes, str):
+            import json as _json
+            try:
+                raw_timeframes = _json.loads(raw_timeframes)
+            except Exception:
+                raw_timeframes = [15]
+        timeframes = [int(tf) for tf in raw_timeframes if str(tf).isdigit() or isinstance(tf, int)]
+        if not timeframes:
+            timeframes = [15]
 
         try:
-            # Load current candles
+            # Load current candles — keyed by int timeframe
             candles_data = {}
             for tf in timeframes:
                 candles = self.loader.load_candles(pair, tf, 365)
-                if candles.empty:
-                    logger.warning(f"No data for {pair} {tf}")
+                if not hasattr(candles, 'empty') or candles.empty:
+                    logger.warning(f"No data for {pair} {tf}m")
                     return
                 candles_data[tf] = candles
 
@@ -200,9 +213,16 @@ class LiveTradingService:
         try:
             # Use strategy parameters to generate signals
             indicators = strategy.indicators or {}
-            latest_candles = candles_data.get("15m", {})
+            if isinstance(indicators, str):
+                import json as _json
+                try:
+                    indicators = _json.loads(indicators)
+                except Exception:
+                    indicators = {}
 
-            if latest_candles.empty or len(latest_candles) < 50:
+            # candles_data is keyed by int (15, 60, 240) — try int first, then "15m"
+            latest_candles = candles_data.get(15) or candles_data.get("15m")
+            if latest_candles is None or not hasattr(latest_candles, 'empty') or latest_candles.empty or len(latest_candles) < 50:
                 return None
 
             latest = latest_candles.iloc[-1]

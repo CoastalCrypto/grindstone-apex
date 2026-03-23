@@ -69,7 +69,9 @@ class HistoricalDataLoader:
             cached = redis_client.get(cache_key)
             if cached:
                 logger.info(f"Loaded {pair} {timeframe}m from cache")
-                df = pd.read_json(cached)
+                from io import StringIO
+                cached_str = cached if isinstance(cached, str) else cached.decode("utf-8")
+                df = pd.read_json(StringIO(cached_str))
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 return df
 

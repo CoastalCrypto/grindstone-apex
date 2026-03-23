@@ -241,7 +241,8 @@ class SystemMetrics(Base):
     """System health and performance metrics."""
     __tablename__ = "system_metrics"
 
-    id = Column(String(50), primary_key=True, index=True)
+    id = Column(String(50), primary_key=True, index=True,
+                default=lambda: f"metrics_{uuid.uuid4().hex[:12]}")
 
     # Timing
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
